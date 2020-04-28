@@ -1,22 +1,24 @@
 pragma solidity 0.5.8;
 
 import "./TwoStepOwnable.sol";
-import "./interfaces/IAave.sol";
 import "./interfaces/IChainLink.sol";
-import "./interfaces/ICompound.sol";
 import "./interfaces/IKyberSwap.sol";
 import "./interfaces/IERC20.sol";
 import "./Utils.sol";
+import "./interfaces/Aave/ILendingPoolAddressesProvider.sol";
+import "./interfaces/Aave/ILendingPool.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
+
 
 contract BuyLowSellHigh is TwoStepOwnable {
+    using SafeMath for uint256;
 
-    IAave public aave;
-    ICompound public compound;
     IChainLink public chainlink;
     IKyberSwap public kyberswap;
     uint256 internal setLimit;
-
     mapping(address => address) public oracles;
+    address constant AaveLendingPoolAddressProviderAddress = 0x24a42fD28C976A61Df5D00D0599C34c4f90748c8;
+
 
     modifier addressValid(address _address) {
         require(_address != address(0), "Utils::_ INVALID_ADDRESS");
@@ -32,34 +34,15 @@ contract BuyLowSellHigh is TwoStepOwnable {
         address tokenAddr;
     }
     mapping(address => OrderDetails) public orders;
-
-    event LogDeposit(uint256 indexed amount, address indexed token, address indexed by);
-
+    mapping (address => uint256) balances;
 
 
-    constructor(IAave _aave, ICompound _compound, IChainLink _chainlink, IKyberSwap _kyberswap, uint256 _setLimit)
+    constructor(IChainLink _chainlink, IKyberSwap _kyberswap, uint256 _setLimit)
         public
     {
-        aave = _aave;
-        compound = _compound;
         chainlink = _chainlink;
         kyberswap = _kyberswap;
         setLimit = _setLimit;
-    }
-    function setAave(IAave _aave)
-        public
-        onlyOwner
-        addressValid(address(_aave))
-    {
-        aave = _aave;
-    }
-
-    function setCompound(ICompound _compound)
-        public
-        onlyOwner
-        addressValid(address(_compound))
-    {
-        compound = _compound;
     }
 
     function setChainLink(IChainLink _chainlink)
@@ -98,33 +81,37 @@ contract BuyLowSellHigh is TwoStepOwnable {
     }
 
     //Write Deposit function and Implement Transfer function with Validations.
-    function deposit(uint256 _amount, IERC20 _tokenAddr) public payable {
-        require(_tokenAddr.balanceOf(msg.sender) >= _amount, "BLSH::deposit INSUFFICIENT_BALANCE");
-        _tokenAddr.approve(address(this), _amount);
-        _tokenAddr.transfer(address(this), _amount);
-        emit LogDeposit(_amount, address(_tokenAddr), msg.sender);
+    function deposit(address _tokenAddr) public payable {
+        balances[msg.sender] = balances[msg.sender].add(msg.value);
+        ILendingPool lendingPool = ILendingPool(
+            ILendingPoolAddressesProvider(AaveLendingPoolAddressProviderAddress)
+                .getLendingPool()
+        );
+        lendingPool.deposit(_tokenAddr, balances[msg.sender], 0);
     }
 
-    function placeOrder
-    (
-        uint256 _srcAmount,
-        uint256 _dstAmount,
-        uint256 _buyPrice,
-        uint256 _sellPrice,
-        uint256 _expirationTime,
-        address _tokenAddr
-        )
-        public
-        payable
-        returns(bool)
-        addressValid(_tokenAddr)
+    // function placeOrder
+    // (
+    //     uint256 _srcAmount,
+    //     uint256 _dstAmount,
+    //     uint256 _buyPrice,
+    //     uint256 _sellPrice,
+    //     uint256 _expirationTime,
+    //     address _tokenAddr
+    //     )
+    //     public
+    //     payable
+    //     returns(bool)
+    //     addressValid(_tokenAddr)
 
-    {
-        uint256 diff = sub(_sellPrice, _buyPrice);
-    //TODO: Add expiration time validation too.
-        if(diff > setLimit){
-            //Mint ATokens
-        }
+    // {
+    //     uint256 diff = sub(_sellPrice, _buyPrice);
+    // //TODO: Add expiration time validation too.
+    //     if(diff > setLimit){
+    //         //Mint ATokens
+    //         deposit(_srcAmount, _tokenAddr);
+
+    //     }
         
-    }
+    // }
 }
