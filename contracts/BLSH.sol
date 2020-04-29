@@ -16,8 +16,14 @@ contract BuyLowSellHigh is TwoStepOwnable {
     IChainLink public chainlink;
     IKyberSwap public kyberswap;
     uint256 internal setLimit;
+    ILendingPoolAddressesProvider public provider;
+    bool public limitOrderEnabled;
+    uint256 public id;
     mapping(address => address) public oracles;
-    address constant AaveLendingPoolAddressProviderAddress = 0x24a42fD28C976A61Df5D00D0599C34c4f90748c8;
+    mapping(uint256 => OrderDetails) public orders;
+    mapping (address => uint256) public balances;
+    mapping (address => uint256[]) public tracker;
+
 
 
     modifier addressValid(address _address) {
@@ -33,16 +39,33 @@ contract BuyLowSellHigh is TwoStepOwnable {
         uint256 expirationTime;
         address tokenAddr;
     }
-    mapping(address => OrderDetails) public orders;
-    mapping (address => uint256) balances;
+    event LimitOrderEnabled(bool limitOrderEnabled);
 
 
-    constructor(IChainLink _chainlink, IKyberSwap _kyberswap, uint256 _setLimit)
+
+    constructor(IChainLink _chainlink, IKyberSwap _kyberswap, ILendingPoolAddressesProvider _provider, uint256 _setLimit)
         public
     {
         chainlink = _chainlink;
         kyberswap = _kyberswap;
+        provider = _provider;
         setLimit = _setLimit;
+    }
+
+    function enableLimitOrder()
+        internal
+        onlyOwner
+    {
+        limitOrderEnabled = true;
+        emit LimitOrderEnabled(limitOrderEnabled);
+    }
+
+    function disableLimitOrder()
+        internal
+        onlyOwner
+    {
+        limitOrderEnabled = false;
+        emit LimitOrderEnabled(limitOrderEnabled);
     }
 
     function setChainLink(IChainLink _chainlink)
@@ -51,6 +74,14 @@ contract BuyLowSellHigh is TwoStepOwnable {
         addressValid(address(_chainlink))
     {
         chainlink = _chainlink;
+    }
+
+    function setLendingPoolAddressesProvider(ILendingPoolAddressesProvider _provider)
+        public
+        onlyOwner
+        addressValid(address(_provider))
+    {
+        provider = _provider;
     }
 
     function setKyberSwap(IKyberSwap _kyberswap)
@@ -80,38 +111,33 @@ contract BuyLowSellHigh is TwoStepOwnable {
         return Utils.changePrecision(price, 8, 18);
     }
 
-    //Write Deposit function and Implement Transfer function with Validations.
     function deposit(address _tokenAddr) public payable {
         balances[msg.sender] = balances[msg.sender].add(msg.value);
         ILendingPool lendingPool = ILendingPool(
-            ILendingPoolAddressesProvider(AaveLendingPoolAddressProviderAddress)
-                .getLendingPool()
+                provider.getLendingPool()
         );
         lendingPool.deposit(_tokenAddr, balances[msg.sender], 0);
     }
 
-    // function placeOrder
-    // (
-    //     uint256 _srcAmount,
-    //     uint256 _dstAmount,
-    //     uint256 _buyPrice,
-    //     uint256 _sellPrice,
-    //     uint256 _expirationTime,
-    //     address _tokenAddr
-    //     )
-    //     public
-    //     payable
-    //     returns(bool)
-    //     addressValid(_tokenAddr)
+    function placeOrder
+    (
+        uint256 _srcAmount,
+        uint256 _dstAmount,
+        uint256 _buyPrice,
+        uint256 _sellPrice,
+        uint256 _expirationTime,
+        address _tokenAddr
+        )
+        public
+        addressValid(_tokenAddr)
+        returns(bool)
 
-    // {
-    //     uint256 diff = sub(_sellPrice, _buyPrice);
-    // //TODO: Add expiration time validation too.
-    //     if(diff > setLimit){
-    //         //Mint ATokens
-    //         deposit(_srcAmount, _tokenAddr);
+    {
+        id = id.add(1);
+        orders[id] = OrderDetails(_srcAmount, _dstAmount, _buyPrice, _sellPrice, _expirationTime, _tokenAddr);
+        tracker[msg.sender].push(id);
+        enableLimitOrder();
+        return limitOrderEnabled;
+    }
 
-    //     }
-        
-    // }
 }
